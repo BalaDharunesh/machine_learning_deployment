@@ -1,15 +1,28 @@
 import pandas as pd
-import numpy as np
 import joblib
 from flask import Flask, request, jsonify
+from flasgger import Swagger, swag_from
 
 app = Flask(__name__)
 
-# Load the trained model and imputation means
+# Swagger configuration
+swagger_config = {
+    "headers": [],
+    "title": "Diabetes Prediction API",
+    "description": "API for predicting diabetes using a Logistic Regression model",
+    "version": "1.0.0",
+    "termsOfService": "",
+    "swagger_ui": True,
+    "specs_route": "/swagger/"
+}
+
+Swagger(app, config=swagger_config)
+
+# Load trained model and imputation means
 model = joblib.load("logistic_regression_model.joblib")
 imputation_means = joblib.load("imputation_means.joblib")
 
-# Feature order MUST match training data
+# Feature order (must match training)
 feature_columns = [
     "Pregnancies",
     "Glucose",
@@ -21,7 +34,6 @@ feature_columns = [
     "Age"
 ]
 
-# Columns where 0 should be treated as missing
 columns_to_impute = [
     "Glucose",
     "BloodPressure",
@@ -35,40 +47,85 @@ columns_to_impute = [
 def home():
     return jsonify({
         "message": "Diabetes Prediction API is running 🚀",
-        "endpoint": "/predict",
-        "method": "POST"
+        "swagger_url": "/swagger"
     })
 
 
 @app.route("/predict", methods=["POST"])
+@swag_from({
+    "tags": ["Prediction"],
+    "consumes": ["application/json"],
+    "produces": ["application/json"],
+    "parameters": [
+        {
+            "name": "body",
+            "in": "body",
+            "required": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "Pregnancies": {"type": "integer", "example": 2},
+                    "Glucose": {"type": "number", "example": 120},
+                    "BloodPressure": {"type": "number", "example": 70},
+                    "SkinThickness": {"type": "number", "example": 20},
+                    "Insulin": {"type": "number", "example": 79},
+                    "BMI": {"type": "number", "example": 25.4},
+                    "DiabetesPedigreeFunction": {"type": "number", "example": 0.35},
+                    "Age": {"type": "integer", "example": 31}
+                },
+                "required": [
+                    "Pregnancies",
+                    "Glucose",
+                    "BloodPressure",
+                    "SkinThickness",
+                    "Insulin",
+                    "BMI",
+                    "DiabetesPedigreeFunction",
+                    "Age"
+                ]
+            }
+        }
+    ],
+    "responses": {
+        200: {
+            "description": "Prediction result",
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "prediction": {"type": "integer"},
+                    "probability_of_diabetes": {"type": "number"}
+                }
+            }
+        },
+        400: {"description": "Invalid input"},
+        500: {"description": "Server error"}
+    }
+})
 def predict():
     try:
-        json_data = request.get_json()
+        data = request.get_json()
 
-        if not json_data:
+        if not data:
             return jsonify({"error": "No JSON data provided"}), 400
 
-        # Ensure all required features are present
-        missing_features = [col for col in feature_columns if col not in json_data]
+        missing_features = [col for col in feature_columns if col not in data]
         if missing_features:
             return jsonify({
                 "error": "Missing required features",
                 "missing_features": missing_features
             }), 400
 
-        # Convert input JSON to DataFrame (single row)
-        input_df = pd.DataFrame([json_data], columns=feature_columns)
+        input_df = pd.DataFrame([data], columns=feature_columns)
 
-        # Replace 0 with mean values for selected columns
+        # Impute zero values
         for col in columns_to_impute:
             input_df[col] = input_df[col].replace(0, imputation_means.get(col))
 
-        # Fill any remaining NaN values safely
+        # Fill NaNs
         for col in feature_columns:
             if col in imputation_means:
                 input_df[col] = input_df[col].fillna(imputation_means.get(col))
 
-        # Prediction
         prediction = model.predict(input_df)[0]
         probability = model.predict_proba(input_df)[0][1]
 
@@ -81,6 +138,5 @@ def predict():
         return jsonify({"error": str(e)}), 500
 
 
-# Required for Render / Gunicorn
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
