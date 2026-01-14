@@ -5,18 +5,33 @@ from flasgger import Swagger, swag_from
 
 app = Flask(__name__)
 
-# Swagger configuration
+# ---------------- SWAGGER CONFIG (FIXED) ----------------
 swagger_config = {
     "headers": [],
-    "title": "Diabetes Prediction API",
-    "description": "API for predicting diabetes using a Logistic Regression model",
-    "version": "1.0.0",
-    "termsOfService": "",
+    "specs": [
+        {
+            "endpoint": "apispec",
+            "route": "/apispec.json",
+            "rule_filter": lambda rule: True,
+            "model_filter": lambda tag: True,
+        }
+    ],
+    "static_url_path": "/flasgger_static",
     "swagger_ui": True,
     "specs_route": "/swagger/"
 }
 
-Swagger(app, config=swagger_config)
+swagger_template = {
+    "swagger": "2.0",
+    "info": {
+        "title": "Diabetes Prediction API",
+        "description": "Predict diabetes using a trained Logistic Regression model",
+        "version": "1.0.0"
+    }
+}
+
+Swagger(app, config=swagger_config, template=swagger_template)
+# -------------------------------------------------------
 
 # Load trained model and imputation means
 model = joblib.load("logistic_regression_model.joblib")
@@ -117,7 +132,7 @@ def predict():
 
         input_df = pd.DataFrame([data], columns=feature_columns)
 
-        # Impute zero values
+        # Replace zero values with mean
         for col in columns_to_impute:
             input_df[col] = input_df[col].replace(0, imputation_means.get(col))
 
